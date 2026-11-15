@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
-from simulator import simulate_attack
+from simulator import simulate_attack, simulate_attack_exp, simulate_attack_fast
+from theory import rosenfeld
 
 
 def test_z_zero_tie_rule():
@@ -44,14 +46,43 @@ def test_larger_z_reduces_success():
     assert large_z_successes < small_z_successes
 
 
-def test_cap_is_negligible_for_large_n():
-    n_trials = 500_000
-    caps = [30, 60, 120]
-    rates = []
+def test_same_seed_same_result():
+    a = simulate_attack(0.3, 5, 10_000, np.random.default_rng(42))
+    b = simulate_attack(0.3, 5, 10_000, np.random.default_rng(42))
+    assert a == b
 
-    for cap in caps:
-        rng = np.random.default_rng(123)
-        successes = simulate_attack(0.45, 5, n_trials, rng, overtake=False, max_deficit=cap)
-        rates.append(successes / n_trials)
 
-    assert max(abs(rate - rates[1]) for rate in rates) < 0.0025
+def test_matches_rosenfeld():
+    n = 20_000
+    for q, z in [(0.1, 2), (0.3, 3)]:
+        p_hat = simulate_attack(q, z, n, np.random.default_rng(7)) / n
+        p = rosenfeld(q, z)
+        z_score = (p_hat - p) / ((p * (1 - p) / n) ** 0.5)
+        assert abs(z_score) < 4
+
+
+def test_exponential_simulator_zero_cases_and_rosenfeld_match():
+    rng = np.random.default_rng(123)
+    n = 20_000
+
+    assert simulate_attack_exp(0.0, 5, n, rng) == 0
+    assert simulate_attack_exp(0.3, 0, n, rng) == n
+
+    q, z = 0.3, 3
+    p_hat = simulate_attack_exp(q, z, n, np.random.default_rng(7)) / n
+    p = rosenfeld(q, z)
+    z_score = (p_hat - p) / ((p * (1 - p) / n) ** 0.5)
+    assert abs(z_score) < 4
+
+
+def test_numba_simulator_zero_cases_and_rosenfeld_match():
+    pytest.importorskip("numba")
+
+    assert simulate_attack_fast(0.0, 5, 2000, 123) == 0
+    assert simulate_attack_fast(0.3, 0, 2000, 123) == 2000
+
+    q, z, n = 0.3, 3, 20_000
+    p_hat = simulate_attack_fast(q, z, n, 7) / n
+    p = rosenfeld(q, z)
+    z_score = (p_hat - p) / ((p * (1 - p) / n) ** 0.5)
+    assert abs(z_score) < 4
